@@ -1,0 +1,9 @@
+This project is intended to make a map from \((x,y)\) space to \((\eta,\phi)\) space to make analysis in the CMS endcaps easier and more intuitive.
+
+<h3>Links</h3>
+
+<a href="https://github.com/aidansean/EtaPhiMap">GitHub repository</a>
+
+<h3>Overview</h3>
+
+This script arranges "superclusters" around the endcap and shows what a cone of constant \(\Delta R\) looks like.
