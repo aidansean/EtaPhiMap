@@ -1,21 +1,61 @@
+##########################################################################################
+# Written by Aidan Randle-Conde (aidan.randleconde@gmail.com)                            #
+# Feel free to use, edit, and redistribute, but attribute me as the original creator     #
+# 2014/11/03 21:54 UCT                                                                   #
+##########################################################################################
+
 import math
 
-# Parameters
+##########################################################################################
+# Draw options                                                                           #
+##########################################################################################
+draw_crystals      = True # Draw outlines to crystals
+fill_emptyCrystals = True # Colour in empty crystals
+fill_dRCrystals    = True # Colour in crystals in the isolation cone
+fill_5x5Crystals   = True # Colour in crystals in the 5x5
+
+draw_dRCurves  = True  # Draw the isolation curves
+draw_etaCurves = True  # Draw curves of constant eta
+draw_phiLines  = True  # Draw lines of constant phi
+draw_dRLabels  = True  # Draw labels showing 5x5/isolation crystals
+draw_etaLabels = False # Draw eta labels (clutters up the plot)
+
+draw_dRInfoLabel = True # Draw the label showing the size of the isolation curves
+draw_zInfoLabel  = True # Show the z cooridinate
+
+##########################################################################################
+# Parameters                                                                             #
+##########################################################################################
 pi = 3.14159
-dR       = 0.3
-DEta     = 0.3
-DPhi     = pi/10
-etaStart = 1.5
-etaStop  = 3.0
-nPoints  = 100
-nCurves  =  20
+dR       = 0.3   # Size in deltaR of "isolation" rings
+DEta     = 0.3   # Separation of eta rings in the phi-eta grid
+DPhi     = pi/10 # Separation of phi lines in the phi-eta grid
+etaStart = 1.5   # Where to start making eta rings
+etaStop  = 3.0   # And when to stop
+nPoints  = 100   # How many points per ring
+nCurves  =  20   # How many "isolation" rings to create
+
+##########################################################################################
+# Geometry                                                                               #
+##########################################################################################
+z0 = 3.14    # Distance in z from the centre of the CMS detector (Hey, it's pi m!)
+eta0 = 1.479 # Start of endcap ecal in eta
+eta1 = 3.000 # End of endcap ecal in eta (note this is the "inner" limit)
+theta0 = 2*math.atan(math.exp(-eta0)) # Start of endcap ecal in theta
+theta1 = 2*math.atan(math.exp(-eta1)) # End of endcap ecal in theta
+inner_radius = z0*math.tan(theta1) # It's just trigonometry, dawg
+outer_radius = z0*math.tan(theta0)
+
+nCrystalsAcross = 53*2 # There are roughly 106 crystals across the endcap
+nCrystalsAcross = 2*outer_radius/0.028
+# Take 2*outer_radius and divide by crystal size, 2.28cm
 
 ##########################################################################################
 # ROOT and style                                                                         #
+# Standard boiler plate stuff by now                                                     #
 ##########################################################################################
 import ROOT
 ROOT.gROOT.SetBatch(ROOT.kTRUE)
-#ROOT.gROOT.ProcessLine('.L Loader.C+')
 
 ROOT.gStyle.SetOptStat(0)
 ROOT.gStyle.SetPadTickX(1)
@@ -31,6 +71,11 @@ ROOT.gStyle.SetPadColor(ROOT.kWhite)
 ROOT.gStyle.SetStatColor(ROOT.kWhite)
 ROOT.gStyle.SetErrorX(0)
 
+lineColor = ROOT.kBlack # Colour of the eta-phi grid
+
+##########################################################################################
+# Make a pretty canvas                                                                   #
+##########################################################################################
 cw = 600
 ch = 600
 canvas = ROOT.TCanvas('canvas','',100,100,cw,ch)
@@ -39,31 +84,22 @@ canvas.SetGridy()
 canvas.SetFillColor(ROOT.kWhite)
 canvas.SetBorderMode(0)
 
-lineColor = ROOT.kYellow+3
-lineColor = ROOT.kBlack
-
 ##########################################################################################
-# Geometry                                                                               #
+# Make the map from a large 2D histogram, with each cell being a crystal (or dead space) #
 ##########################################################################################
-z0 = 3.14
-eta0 = 1.479
-eta1 = 3.000
-theta0 = 2*math.atan(math.exp(-eta0))
-theta1 = 2*math.atan(math.exp(-eta1))
-inner_radius = z0*math.tan(theta1)
-outer_radius = z0*math.tan(theta0)
-
-nCrystalsAcross = 53*2
-
-size = 1.1*outer_radius
-hMapBase = ROOT.TH2F('hMapBase', '', nCrystalsAcross, -size, size, nCrystalsAcross, -size, size)
+scale = 1.1 # Give the map some breathing space between it and the axes
+size = scale*outer_radius
+nBins = int(scale*nCrystalsAcross)
+hMapBase = ROOT.TH2F('hMapBase', '', nBins, -size, size, nBins, -size, size)
 hMapBase.GetXaxis().SetTitle('x [m]')
 hMapBase.GetYaxis().SetTitle('y [m]')
 hMapBase.GetXaxis().SetTitleOffset(1.25)
 hMapBase.GetYaxis().SetTitleOffset(1.25)
 
+# hMapBase will be square outlines, hMap will be colours
 hMap = hMapBase.Clone('hMap')
 
+# Fill hMapBase and hMap depending on whether they fall in the extent of the endcap ecal
 for binX in range(1,1+hMapBase.GetNbinsX()):
     for binY in range(1,1+hMapBase.GetNbinsY()):
         xmax = hMapBase.GetXaxis().GetBinLowEdge(binX)+hMapBase.GetXaxis().GetBinWidth(binX)
@@ -71,9 +107,15 @@ for binX in range(1,1+hMapBase.GetNbinsX()):
         r = math.sqrt(xmax*xmax+ymax*ymax)
         if r>inner_radius and r<outer_radius:
             hMapBase.SetBinContent(binX,binY,1)
-            hMap.SetBinContent(binX,binY,1)
+            if fill_emptyCrystals:
+                hMap.SetBinContent(binX,binY,1)
 
+##########################################################################################
+# Define some classes to hold useful infomrmation                                        #
+# (Maybe put this in a separate file later)                                              #
+##########################################################################################
 class DR_curve_object:
+    '''Class to hold information about the isolation curves'''
     def __init__(self, cx, cy, points, nIso, nSC):
         self.cx = cx
         self.cy = cy
@@ -111,6 +153,7 @@ class DR_curve_object:
         return label
 
 class isoeta_curve:
+    '''Class to hold information about the constant eta curves'''
     def __init__(self, eta, points, index):
         self.eta = eta
         self.points = points
@@ -133,6 +176,7 @@ class isoeta_curve:
         return label
 
 class isophi_line:
+    '''Class to hold information about the constant phi lines'''
     def __init__(self, phi, x1, y1, x2, y2):
         self.phi = phi
         self.x1 = x1
@@ -143,6 +187,9 @@ class isophi_line:
         self.line.SetLineWidth(1)
         self.line.SetLineColor(lineColor)
 
+##########################################################################################
+# Now make the isolation curves and update the histograms                                #
+##########################################################################################
 DR_curves = []
 for j in range(0,nCurves):
     r = inner_radius + (j*1.0/nCurves)*(outer_radius-inner_radius)
@@ -156,6 +203,7 @@ for j in range(0,nCurves):
         dEta = dR*math.cos(psi)
         dPhi = dR*math.sin(psi)
         
+        # This bit's tricky.  Get it wrong and you lose the eta variations
         eta_tmp   = cp.Eta()+dEta
         theta_tmp = 2*math.atan(math.exp(-eta_tmp))
         rho = z0*math.tan(theta_tmp)
@@ -166,6 +214,8 @@ for j in range(0,nCurves):
         y = TV3.Y()
         points.append([x,y])
     
+    # Count up how many crystals are in the 5x5 and how many are in the isolation cone
+    # Update the histograms with this information
     nIso = 0
     nSC  = 0
     for binX in range(1,1+hMap.GetNbinsX()) :
@@ -174,8 +224,11 @@ for j in range(0,nCurves):
             crysy = hMap.GetYaxis().GetBinCenter(binY)
             TV3 = ROOT.TVector3(crysx,crysy,z0)
             if TV3.DeltaR(cp)<dR and TV3.Perp()>=inner_radius and TV3.Perp()<=outer_radius:
-                hMap.SetBinContent(binX,binY,2)
+                if fill_dRCrystals:
+                    hMap.SetBinContent(binX,binY,2)
                 nIso += 1
+    
+    
     crysbinx = hMap.GetXaxis().FindBin(cx)
     crysbiny = hMap.GetYaxis().FindBin(cy)
     for binX in range(crysbinx-2,crysbinx+3):
@@ -184,11 +237,15 @@ for j in range(0,nCurves):
             y = hMap.GetYaxis().GetBinCenter(binY)
             r = math.sqrt(x*x+y*y)
             if r>=inner_radius and r<=outer_radius:
-                hMap.SetBinContent(binX,binY,3)
+                if fill_5x5Crystals:
+                    hMap.SetBinContent(binX,binY,3)
                 nSC += 1
     DCurve = DR_curve_object(cx,cy,points,nIso,nSC)
     DR_curves.append(DCurve)
 
+##########################################################################################
+# Now for the curves of constant eta and lines of constant phi                           #
+##########################################################################################
 eta_curves = []
 eta = etaStart
 index = 0
@@ -233,51 +290,65 @@ while phi < 2*pi:
     
     phi += DPhi
 
-hMap.Draw('COL')
-hMapBase.Draw('BOX:sames')
+##########################################################################################
+# Put it all together and draw!                                                          #
+##########################################################################################
+
+# Make some arrays to contain objects so that python doesn't garbage collect them
 lines   = []
 markers = []
 labels  = []
 
-for p in phi_lines:
-    line = p.line
-    lines.append(line)
-    line.Draw()
+hMap.Draw('COL')
+if draw_crystals:
+    hMapBase.Draw('BOX:sames')
 
-for c in eta_curves:
-    for i in range(0,len(c.points)):
-        p0 = c.points[i+0]
-        p1 = c.points[(i+1)%len(c.points)]
-        line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
-        line.SetLineColor(lineColor)
-        line.SetLineWidth(1)
+if draw_phiLines:
+    for p in phi_lines:
+        line = p.line
         lines.append(line)
         line.Draw()
-    #label = c.label()
-    #labels.append(label)
-    #label.Draw()
-for c in DR_curves:
-    for i in range(0,len(c.points)-1):
-        p0 = c.points[i+0]
-        p1 = c.points[i+1]
-        line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
-        line.SetLineColor(ROOT.kBlue)
-        line.SetLineWidth(2)
-        lines.append(line)
-        line.Draw()
+
+if draw_etaCurves:
+    for c in eta_curves:
+        for i in range(0,len(c.points)):
+            p0 = c.points[i+0]
+            p1 = c.points[(i+1)%len(c.points)]
+            line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
+            line.SetLineColor(lineColor)
+            line.SetLineWidth(1)
+            lines.append(line)
+            line.Draw()
+        label = c.label()
+        labels.append(label)
+        if draw_etaLabels:
+            label.Draw()
+
+if draw_dRCurves:
+    for c in DR_curves:
+        for i in range(0,len(c.points)-1):
+            p0 = c.points[i+0]
+            p1 = c.points[i+1]
+            line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
+            line.SetLineColor(ROOT.kBlue)
+            line.SetLineWidth(2)
+            lines.append(line)
+            line.Draw()
     
-    label = c.SC_label()
-    labels.append(label)
-    label.Draw()
-
+        label = c.SC_label()
+        labels.append(label)
+        if draw_dRLabels:
+            label.Draw()
 
 DR_label = ROOT.TLatex(1.25, 1.25, '#DeltaR=0.3')
 DR_label.SetTextAlign(22)
-DR_label.Draw()
+if draw_dRInfoLabel:
+    DR_label.Draw()
 
 z_label = ROOT.TLatex(1.25, 1.5, 'z=3.14 m')
 z_label.SetTextAlign(22)
-z_label.Draw()
+if draw_zInfoLabel:
+    z_label.Draw()
 
-canvas.Print('plots/baseMap.eps')
+canvas.Print('baseMap.eps')
 
