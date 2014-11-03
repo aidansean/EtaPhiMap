@@ -1,9 +1,14 @@
 import math
 
 # Parameters
-dR      = 0.3
-nPoints = 100
-nCurves =  20
+pi = 3.14159
+dR       = 0.3
+DEta     = 0.3
+DPhi     = pi/10
+etaStart = 1.5
+etaStop  = 3.0
+nPoints  = 100
+nCurves  =  20
 
 ##########################################################################################
 # ROOT and style                                                                         #
@@ -34,7 +39,12 @@ canvas.SetGridy()
 canvas.SetFillColor(ROOT.kWhite)
 canvas.SetBorderMode(0)
 
-pi = 3.14159
+lineColor = ROOT.kYellow+3
+lineColor = ROOT.kBlack
+
+##########################################################################################
+# Geometry                                                                               #
+##########################################################################################
 z0 = 3.14
 eta0 = 1.479
 eta1 = 3.000
@@ -64,15 +74,74 @@ for binX in range(1,1+hMapBase.GetNbinsX()):
             hMap.SetBinContent(binX,binY,1)
 
 class DR_curve_object:
-    def __init__(self, cx, cy, points):
+    def __init__(self, cx, cy, points, nIso, nSC):
         self.cx = cx
         self.cy = cy
         self.points = points
+        self.nIso = nIso
+        self.nSC = nSC
+        
+        self.r2max = -1e6
+        self.r2min =  1e6
+        self.xmax  = -1e6
+        self.xmin  =  1e6
+        self.ymax  = -1e6
+        self.ymin  =  1e6
+        for i in range(0,len(self.points)):
+            x = self.points[i][0]
+            x = self.points[i][1]
+            if x*x+y*y > self.r2max:
+                self.r2max = x*x + y*y
+            if x*x+y*y < self.r2min:
+                self.r2min = x*x + y*y
+            if x>self.xmax:
+                self.xmax = x
+            if x<self.xmin:
+                self.xmin = x
+            if y>self.ymax:
+                self.ymax = y
+            if y<self.ymin:
+                self.ymin = y
+        
+    def SC_label(self):
+        label = ROOT.TLatex(self.cx,self.cy,'%d/%d'%(self.nSC,self.nIso))
+        label.SetTextSize(0.02)
+        label.SetTextAlign(22)
+        label.SetTextColor(ROOT.kWhite)
+        return label
 
-class isoeta_curves:
-    def __init__(self, eta, points):
+class isoeta_curve:
+    def __init__(self, eta, points, index):
         self.eta = eta
         self.points = points
+        self.index = index
+    def label(self):
+        phi = -0.5*pi*self.index*DEta/(etaStop-etaStart)
+        
+        theta_tmp = 2*math.atan(math.exp(-self.eta))
+        rho = z0*math.tan(theta_tmp)
+        
+        TV3 = ROOT.TVector3()
+        TV3.SetPtEtaPhi(rho,self.eta,phi)
+        x = TV3.X()
+        y = TV3.Y()
+        
+        label = ROOT.TLatex(x,y,'#eta=%.1f'%self.eta)
+        label.SetTextSize(0.02)
+        label.SetTextAlign(22)
+        label.SetTextColor(ROOT.kWhite)
+        return label
+
+class isophi_line:
+    def __init__(self, phi, x1, y1, x2, y2):
+        self.phi = phi
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+        self.line = ROOT.TLine(self.x1,self.y1,self.x2,self.y2)
+        self.line.SetLineWidth(1)
+        self.line.SetLineColor(lineColor)
 
 DR_curves = []
 for j in range(0,nCurves):
@@ -81,19 +150,13 @@ for j in range(0,nCurves):
     cx = r*math.cos(p)
     cy = r*math.sin(p)
     cp = ROOT.TVector3(cx,cy,z0)
-    r2min =  1e6
-    r2max = -1e6
-    xmin  =  1e6
-    xmax  = -1e6
-    ymin  =  1e6
-    ymax  = -1e6
     points = []
     for i in range(0,nPoints+1):
         psi  = 2*pi*(i+0)/nPoints
         dEta = dR*math.cos(psi)
         dPhi = dR*math.sin(psi)
         
-        eta_tmp = cp.Eta()+dEta
+        eta_tmp   = cp.Eta()+dEta
         theta_tmp = 2*math.atan(math.exp(-eta_tmp))
         rho = z0*math.tan(theta_tmp)
         
@@ -101,20 +164,7 @@ for j in range(0,nCurves):
         TV3.SetPtEtaPhi(rho,cp.Eta()+dEta,cp.Phi()+dPhi)
         x = TV3.X()
         y = TV3.Y()
-        if x*x+y*y > r2max:
-            r2max = x*x + y*y
-        if x*x+y*y < r2min:
-            r2min = x*x + y*y
-        if x>xmax:
-            xmax = x
-        if x<xmin:
-            xmin = x
-        if y>ymax:
-            ymax = y
-        if y<ymin:
-            ymin = y
         points.append([x,y])
-    DCurve = DR_curve_object(cx,cy,points)
     
     nIso = 0
     nSC  = 0
@@ -136,17 +186,78 @@ for j in range(0,nCurves):
             if r>=inner_radius and r<=outer_radius:
                 hMap.SetBinContent(binX,binY,3)
                 nSC += 1
-    DCurve.nIso = nIso
-    DCurve.nSC  = nSC
+    DCurve = DR_curve_object(cx,cy,points,nIso,nSC)
     DR_curves.append(DCurve)
+
+eta_curves = []
+eta = etaStart
+index = 0
+while eta < etaStop+1e-6:
+    points = []
+    for i in range(0,nPoints):
+        phi = 2*pi*i/nPoints
+        
+        theta_tmp = 2*math.atan(math.exp(-eta))
+        rho = z0*math.tan(theta_tmp)
+        
+        TV3 = ROOT.TVector3()
+        TV3.SetPtEtaPhi(rho,eta,phi)
+        x = TV3.X()
+        y = TV3.Y()
+        points.append([x,y])
+    curve = isoeta_curve(eta, points, index)
+    eta_curves.append(curve)
+    eta += DEta
+    index += 1
+
+phi_lines = []
+phi = 0
+while phi < 2*pi:
+    eta1 = etaStart
+    eta2 = eta-DEta
+    
+    theta1 = 2*math.atan(math.exp(-eta1))
+    theta2 = 2*math.atan(math.exp(-eta2))
+    rho1 = z0*math.tan(theta1)
+    rho2 = z0*math.tan(theta2)
+    
+    TV31 = ROOT.TVector3()
+    TV32 = ROOT.TVector3()
+    TV31.SetPtEtaPhi(rho1,eta1,phi)
+    TV32.SetPtEtaPhi(rho2,eta2,phi)
+    x1 = TV31.X()
+    y1 = TV31.Y()
+    x2 = TV32.X()
+    y2 = TV32.Y()
+    phi_lines.append(isophi_line(phi, x1, y1, x2, y2))
+    
+    phi += DPhi
 
 hMap.Draw('COL')
 hMapBase.Draw('BOX:sames')
 lines   = []
 markers = []
 labels  = []
+
+for p in phi_lines:
+    line = p.line
+    lines.append(line)
+    line.Draw()
+
+for c in eta_curves:
+    for i in range(0,len(c.points)):
+        p0 = c.points[i+0]
+        p1 = c.points[(i+1)%len(c.points)]
+        line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
+        line.SetLineColor(lineColor)
+        line.SetLineWidth(1)
+        lines.append(line)
+        line.Draw()
+    #label = c.label()
+    #labels.append(label)
+    #label.Draw()
 for c in DR_curves:
-    for i in range(0,nPoints):
+    for i in range(0,len(c.points)-1):
         p0 = c.points[i+0]
         p1 = c.points[i+1]
         line = ROOT.TLine(p0[0],p0[1],p1[0],p1[1])
@@ -154,28 +265,19 @@ for c in DR_curves:
         line.SetLineWidth(2)
         lines.append(line)
         line.Draw()
-        
-        marker = ROOT.TMarker(p0[0],p0[1],22)
-        marker.SetMarkerColor(50+i)
-        markers.append(marker)
-        #marker.Draw()
-        
-        #print '%10.7f  %10.7f  %10.7f  %10.7f'%(p0[0],p0[1],p1[0],p1[1])
-        
-    marker = ROOT.TMarker(c.cx,c.cy,20)
-    markers.append(marker)
-    #marker.Draw()
     
-    label = ROOT.TLatex(c.cx,c.cy,'%d/%d'%(c.nSC,c.nIso))
-    label.SetTextSize(0.02)
-    label.SetTextAlign(22)
-    label.SetTextColor(ROOT.kWhite)
+    label = c.SC_label()
     labels.append(label)
     label.Draw()
 
-label = ROOT.TLatex(1.25, 1.25, '#DeltaR=0.3')
-label.SetTextAlign(22)
-label.Draw()
+
+DR_label = ROOT.TLatex(1.25, 1.25, '#DeltaR=0.3')
+DR_label.SetTextAlign(22)
+DR_label.Draw()
+
+z_label = ROOT.TLatex(1.25, 1.5, 'z=3.14 m')
+z_label.SetTextAlign(22)
+z_label.Draw()
 
 canvas.Print('plots/baseMap.eps')
 
